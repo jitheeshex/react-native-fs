@@ -1,15 +1,13 @@
 package com.rnfs;
 
-import java.io.File;
 import java.io.FileOutputStream;
-import java.io.FileInputStream;
 import java.io.BufferedInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.IOException;
 import java.net.URL;
-import java.net.URLConnection;
 import java.net.HttpURLConnection;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -18,6 +16,14 @@ import android.util.Log;
 import android.os.AsyncTask;
 
 import com.facebook.react.bridge.ReadableMapKeySetIterator;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 public class Downloader extends AsyncTask<DownloadParams, int[], DownloadResult> {
   private DownloadParams mParam;
@@ -46,10 +52,16 @@ public class Downloader extends AsyncTask<DownloadParams, int[], DownloadResult>
   private void download(DownloadParams param, DownloadResult res) throws Exception {
     InputStream input = null;
     OutputStream output = null;
-    HttpURLConnection connection = null;
+    HttpsURLConnection connection = null;
 
     try {
-      connection = (HttpURLConnection)param.src.openConnection();
+
+      connection = (HttpsURLConnection)param.src.openConnection();
+
+      trustAllHosts(connection);
+      connection.getHostnameVerifier();
+      connection.setHostnameVerifier(DO_NOT_VERIFY);
+
 
       ReadableMapKeySetIterator iterator = param.headers.keySetIterator();
 
@@ -80,7 +92,7 @@ public class Downloader extends AsyncTask<DownloadParams, int[], DownloadResult>
         String redirectURL = connection.getHeaderField("Location");
         connection.disconnect();
 
-        connection = (HttpURLConnection) new URL(redirectURL).openConnection();
+        connection = (HttpsURLConnection) new URL(redirectURL).openConnection();
         connection.setConnectTimeout(5000);
         connection.connect();
 
@@ -154,4 +166,48 @@ public class Downloader extends AsyncTask<DownloadParams, int[], DownloadResult>
   protected void onPostExecute(Exception ex) {
 
   }
+
+
+  private static final TrustManager[] trustAllCerts = new TrustManager[]{new X509TrustManager() {
+    public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+      return new java.security.cert.X509Certificate[]{};
+    }
+
+    public void checkClientTrusted(X509Certificate[] chain, String authType)
+            throws CertificateException {
+    }
+
+    public void checkServerTrusted(X509Certificate[] chain, String authType)
+            throws CertificateException {
+    }
+  }};
+
+
+  /**
+   * 设置不验证主机
+   */
+  private static final HostnameVerifier DO_NOT_VERIFY = new HostnameVerifier() {
+    public boolean verify(String hostname, SSLSession session) {
+      return true;
+    }
+  };
+
+  /**
+   * 信任所有
+   * @param connection
+   * @return
+   */
+  private static SSLSocketFactory trustAllHosts(HttpsURLConnection connection) {
+    SSLSocketFactory oldFactory = connection.getSSLSocketFactory();
+    try {
+      SSLContext sc = SSLContext.getInstance("TLS");
+      sc.init(null, trustAllCerts, new java.security.SecureRandom());
+      SSLSocketFactory newFactory = sc.getSocketFactory();
+      connection.setSSLSocketFactory(newFactory);
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+    return oldFactory;
+  }
+
 }
